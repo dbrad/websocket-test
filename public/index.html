@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Socket Test</title>
+    <script src="socket.io/socket.io.js"></script>
+    <script src="js/pixi.js"></script>
+    <script src="//code.jquery.com/jquery-1.11.3.min.js"></script>
+    <script>
+    var UserState = {
+      id: 0,
+      name: "",
+      x: -50,
+      y: -50,
+      ref: null
+    };
+    var OtherUsers = {};
+
+    function init() {
+      ticker = PIXI.ticker.shared;
+      ticker.autoStart = false;
+      renderer = PIXI.autoDetectRenderer(800, 600);
+      stage = new PIXI.Container();
+      document.body.appendChild(renderer.view);
+
+      var socket = io('http://localhost');
+      socket.on('requestName', function (data) {
+        UserState.id = data.id;
+        $('.msgDiv').html("Connected!");
+        var usrName = prompt(data.msg);
+
+        if(usrName) {
+          UserState.name = usrName;
+          socket.emit('usrName', {name: usrName});
+        } else {
+          $('.msgDiv').html("Goodbye!");
+        }
+      });
+
+      socket.on('drawCircle', function (data) {
+        if(data.id != UserState.id) {
+          if(!OtherUsers[data.id]) {
+            OtherUsers[data.id] = {id: data.id, x: data.x || -50, y: data.y || -50, ref: null};
+          } else {
+            OtherUsers[data.id].x = data.x;
+            OtherUsers[data.id].y = data.y;
+          }
+          RenderCircle(OtherUsers[data.id], 0x226622);
+        }
+      });
+      socket.on('userLeft', function(data) {
+        stage.removeChild(OtherUsers[data.id].ref);
+        OtherUsers[data.id].ref.clear();
+        delete OtherUsers[data.id];
+      });
+
+      ///////
+
+      graphics = new PIXI.Graphics();
+      graphics.beginFill(0XEEEEEE);
+      graphics.drawRect(0, 0, 800, 600);
+      stage.addChild(graphics);
+
+      stage.interactive = true;
+      stage.mousedown = function(data) {
+        UserState.x = data.data.global.x;
+        UserState.y = data.data.global.y;
+        RenderCircle( UserState, 0x222266 );
+
+        socket.emit('drawCircle', { x: UserState.x, y: UserState.y });
+      }
+
+
+      ///////
+      
+      ticker.add(function (time) {
+          renderer.render(stage);
+      });
+      ticker.start();
+    };
+
+    function RenderCircle( obj, color ) {
+      if(!obj.ref) {
+        obj.ref = new PIXI.Graphics();
+      } else {
+        stage.removeChild(obj.ref);
+
+        obj.ref.clear();
+      }
+      obj.ref.beginFill(color);
+      obj.ref.drawCircle(obj.x, obj.y, 20);
+      obj.ref.endFill();
+      stage.addChild(obj.ref);
+    }
+    </script>
+    <style media="screen">
+      body, html {
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body onload="init()">
+<div class="msgDiv">
+
+</div>
+  </body>
+</html>
