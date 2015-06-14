@@ -1,107 +1,150 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8">
     <title>Socket Test</title>
     <script src="socket.io/socket.io.js"></script>
     <script src="js/pixi.js"></script>
     <script src="//code.jquery.com/jquery-1.11.3.min.js"></script>
+    <script src="js/UserState.js"></script>
     <script>
-    var UserState = {
-      id: 0,
-      name: "",
-      x: -50,
-      y: -50,
-      ref: null
-    };
-    var OtherUsers = {};
+      "use strict"
+      var User = new UserState();
+      var OtherUsers = {};
+      var socket = null,
+            ticker = null,
+            renderer = null,
+            stage = null,
+            graphics = null;
 
-    function init() {
-      ticker = PIXI.ticker.shared;
-      ticker.autoStart = false;
-      renderer = PIXI.autoDetectRenderer(800, 600);
-      stage = new PIXI.Container();
-      document.body.appendChild(renderer.view);
+      function init() {
+        ticker = PIXI.ticker.shared;
+        ticker.autoStart = false;
+        renderer = PIXI.autoDetectRenderer(800, 600);
+        stage = new PIXI.Container();
+        $('body').prepend(renderer.view);
 
-      var socket = io('http://localhost');
-      socket.on('requestName', function (data) {
-        UserState.id = data.id;
-        $('.msgDiv').html("Connected!");
-        var usrName = prompt(data.msg);
+        graphics = new PIXI.Graphics();
+        graphics.beginFill(0XEEEEEE);
+        graphics.drawRect(0, 0, 800, 600);
+        stage.addChild(graphics);
 
-        if(usrName) {
-          UserState.name = usrName;
-          socket.emit('usrName', {name: usrName});
-        } else {
-          $('.msgDiv').html("Goodbye!");
-        }
-      });
+        socket = io('http://localhost');
+        socket.on('requestName', function (data) {
+          console.log('Received requestName signal.');
+          User.id = data.id;
+          $('.msgDiv').html("Connected! " + data.msg);
+          $('.userName').show();
+          $('canvas').hide();
+          $('.changeMsg').hide();
 
-      socket.on('drawCircle', function (data) {
-        if(data.id != UserState.id) {
-          if(!OtherUsers[data.id]) {
-            OtherUsers[data.id] = {id: data.id, x: data.x || -50, y: data.y || -50, ref: null};
-          } else {
-            OtherUsers[data.id].x = data.x;
-            OtherUsers[data.id].y = data.y;
+          $('#btnSubmitName').click(function() {
+            if( $('#txtUserName').val() ) {
+              var usrName = $('#txtUserName').val();
+              User.name = usrName;
+              socket.emit('usrName', User.data());
+              $('.userName').hide();
+            }
+          });
+        });
+
+        socket.on('newUser', function(data) {
+          console.log('Received newUser signal.');
+          if(data.id != User.id) {
+            if(!OtherUsers[data.id]) {
+              OtherUsers[data.id] = new UserState( data.id, data.name, data.x, data.y );
+              stage.addChild(OtherUsers[data.id].GFX.container);
+              renderUser(OtherUsers[data.id], 0x000000);
+            } else {
+              user.updateData(data);
+              renderUser(user, 0x000000);
+            }
           }
-          RenderCircle(OtherUsers[data.id], 0x226622);
+        });
+
+        socket.on('renderUser', function (data) {
+          console.log('Received renderUser signal.');
+          var user = (data.id != User.id) ? OtherUsers[data.id] : User;
+
+          if(!user) {
+            OtherUsers[data.id] = new UserState( data.id, data.name, data.x, data.y );
+            user = OtherUsers[data.id];
+            stage.addChild(OtherUsers[data.id].GFX.container);
+          }
+          user.updateData(data);
+          renderUser(user, 0x000000);
+        });
+
+        socket.on('userLeft', function(data) {
+          console.log('Received userLeft signal.');
+          stage.removeChild(OtherUsers[data.id].GFX.container);
+          delete OtherUsers[data.id];
+        });
+
+        socket.on('validated', connected);
+      };
+
+      function connected() {
+        console.log('Received validated signal.');
+        stage.addChild(User.GFX.container);
+        stage.interactive = true;
+        renderUser(User, 0x000000);
+        $('.msgDiv').html('Welcome ' + User.name + '!');
+        $('canvas').show();
+        $('.changeMsg').show();
+
+        stage.mousedown = function(data) {
+          User.x = data.data.global.x;
+          User.y = data.data.global.y;
+          renderUser( User, 0x000000 );
+          socket.emit('renderUser', User.data());
         }
-      });
-      socket.on('userLeft', function(data) {
-        stage.removeChild(OtherUsers[data.id].ref);
-        OtherUsers[data.id].ref.clear();
-        delete OtherUsers[data.id];
-      });
 
-      ///////
+        $('#btnSubmitMessage').click(function() {
+          User.lastMsg = $('#txtMessage').val();
+          socket.emit('changeMsg', User.data());
+        });
 
-      graphics = new PIXI.Graphics();
-      graphics.beginFill(0XEEEEEE);
-      graphics.drawRect(0, 0, 800, 600);
-      stage.addChild(graphics);
+        ticker.add(function (time) {
+            renderer.render(stage);
+        });
+        ticker.start();
+      };
 
-      stage.interactive = true;
-      stage.mousedown = function(data) {
-        UserState.x = data.data.global.x;
-        UserState.y = data.data.global.y;
-        RenderCircle( UserState, 0x222266 );
-
-        socket.emit('drawCircle', { x: UserState.x, y: UserState.y });
+      function renderUser( user, color ) {
+        if(user.id == User.id) {
+          user.GFX.name.text = user.name + "(You)";
+        } else {
+          user.GFX.name.text = user.name;
+        }
+        user.GFX.container.position.x = user.x;
+        user.GFX.container.position.y = user.y;
+        user.GFX.msg.text = user.lastMsg;
       }
-
-
-      ///////
-      
-      ticker.add(function (time) {
-          renderer.render(stage);
-      });
-      ticker.start();
-    };
-
-    function RenderCircle( obj, color ) {
-      if(!obj.ref) {
-        obj.ref = new PIXI.Graphics();
-      } else {
-        stage.removeChild(obj.ref);
-
-        obj.ref.clear();
-      }
-      obj.ref.beginFill(color);
-      obj.ref.drawCircle(obj.x, obj.y, 20);
-      obj.ref.endFill();
-      stage.addChild(obj.ref);
-    }
     </script>
     <style media="screen">
       body, html {
         text-align: center;
       }
+      canvas {
+        border: 2px #2D2D2D solid;
+      }
+      #txtMessage, #txtUserName {
+        font-family: monospace;
+      }
+      #btnSubmitMessage {
+        width: 125px;
+      }
     </style>
   </head>
   <body onload="init()">
-<div class="msgDiv">
-
-</div>
+    <div class="userName">
+      <input type="text" id="txtUserName" value="">
+      <input type="button" id="btnSubmitName" value="Submit Name">
+    </div>
+    <div class="changeMsg">
+      <input type="text" id="txtMessage" value="" size="50" maxlength="50">
+      <input type="button" id="btnSubmitMessage" value="Submit Message">
+    </div>
+    <div class="msgDiv"></div>
   </body>
 </html>
